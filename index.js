@@ -19,7 +19,6 @@
 var Accessory, Service, Characteristic, UUIDGen;
 var inherits = require('util').inherits;
 var myLogger = require('./lib/myLogger').myLogger;
-var moment = require('moment');
 var debug = {};
 debug.DEBUG = 100;
 debug.INFO = 200;
@@ -27,7 +26,6 @@ debug.WARN = 300;
 debug.ERROR = 400;
 debug.NO = 1000;
 var hasError = false;
-var FakeGatoHistoryService;
 var DEV_DEBUG=false;
 const GenericAssociated = ['GENERIC_INFO','SHOCK','RAIN_CURRENT','RAIN_TOTAL','WIND_SPEED','WIND_DIRECTION','MODE_STATE'];
 const PushButtonAssociated = ['PUSH_BUTTON','CAMERA_UP','CAMERA_DOWN','CAMERA_LEFT','CAMERA_RIGHT','CAMERA_ZOOM','CAMERA_DEZOOM','CAMERA_PRESET'];
@@ -37,19 +35,18 @@ module.exports = function(homebridge) {
 	Service = homebridge.hap.Service;
 	Characteristic = homebridge.hap.Characteristic;
 	UUIDGen = homebridge.hap.uuid;
-	FakeGatoHistoryService = require('fakegato-history')(homebridge);
 	RegisterCustomCharacteristics();
-	homebridge.registerPlatform('homebridge-jeedom', 'Jeedom', JeedomPlatform, true);
+	homebridge.registerPlatform('homebridge-hkControl', 'hkControl', hkControlPlatform, true);
 };
 
-// -- JeedomPlatform
+// -- hkControlPlatform
 // -- Desc : Main Class, used by Homebridge to construct the platform object
 // -- Params --
 // -- logger : homebridge logger object, contain a prefix
 // -- config : homebridge's config.json file object
 // -- api : homebridge api
 // -- Return : nothing
-function JeedomPlatform(logger, config, api) {
+function hkControlPlatform(logger, config, api) {
 	try{
 		this.config = config || {};
 		this.accessories = [];
@@ -64,11 +61,6 @@ function JeedomPlatform(logger, config, api) {
 		
 		this.pathHomebridgeConf = api.user.storagePath()+'/';
 		
-		this.fakegato=false;
-		if(config.fakegato==true) {
-			this.fakegato=true;
-		}
-		
 		if (!config.url || 
 		    config.url == "http://:80" ||
 			config.url == 'https://:80') {
@@ -81,7 +73,7 @@ function JeedomPlatform(logger, config, api) {
 			this.log('info',"Adresse Jeedom bien configurée :"+config.url);	
 		}
 		this.DEV_DEBUG = DEV_DEBUG; // for passing by
-		this.jeedomClient = require('./lib/jeedom-api').createClient(config.url, config.apikey, this, config.myPlugin);
+		this.hkControlClient = require('./lib/hkControl-api').createClient(config.url, config.apikey, this, config.myPlugin);
 		this.rooms = {};
 		this.updateSubscriptions = [];
 		
@@ -105,7 +97,7 @@ function JeedomPlatform(logger, config, api) {
 		}
 	}
 	catch (e) {
-		this.log('error','Erreur de la Fonction JeedomPlatform : ',e);	
+		this.log('error','Erreur de la Fonction hkControlPlatform : ',e);	
 		console.error(e.stack);
 	}
 }
@@ -113,11 +105,11 @@ function JeedomPlatform(logger, config, api) {
 // -- addAccessories
 // -- Desc : Accessories creation, we get a full model from jeedom and put it in local cache
 // -- Return : nothing
-JeedomPlatform.prototype.addAccessories = function() {
+hkControlPlatform.prototype.addAccessories = function() {
 	try{
 		var that = this;
 		that.log('Synchronisation Jeedom <> Homebridge...');
-		that.jeedomClient.getModel()
+		that.hkControlClient.getModel()
 			.then(function(model){ // we got the base Model from the API
 				if(model && typeof model == 'object' && model.config && typeof model.config == 'object' && model.config.datetime) {
 					that.lastPoll=model.config.datetime;
@@ -158,7 +150,7 @@ JeedomPlatform.prototype.addAccessories = function() {
 	}
 };
 
-JeedomPlatform.prototype.JeedomScenarios2HomeKitAccessories = function(scenarios) {
+hkControlPlatform.prototype.JeedomScenarios2HomeKitAccessories = function(scenarios) {
 	try{
 		var that = this;
 		if (scenarios) {
@@ -252,7 +244,7 @@ JeedomPlatform.prototype.JeedomScenarios2HomeKitAccessories = function(scenarios
 // -- Params --
 // -- devices : eqLogics from jeedom
 // -- Return : nothing
-JeedomPlatform.prototype.JeedomDevices2HomeKitAccessories = function(devices) {
+hkControlPlatform.prototype.JeedomDevices2HomeKitAccessories = function(devices) {
 	try{
 		var that = this;
 		if (devices) {
@@ -276,9 +268,9 @@ JeedomPlatform.prototype.JeedomDevices2HomeKitAccessories = function(devices) {
 				    device.sendToHomebridge != '0') {
 
 					that.AccessoireCreateHomebridge(
-						that.jeedomClient.ParseGenericType(
+						that.hkControlClient.ParseGenericType(
 							device, 
-							that.jeedomClient.getDeviceCmdFromCache(device.id)
+							that.hkControlClient.getDeviceCmdFromCache(device.id)
 						)
 					);
 				}
@@ -348,7 +340,7 @@ JeedomPlatform.prototype.JeedomDevices2HomeKitAccessories = function(devices) {
 // -- Params --
 // -- eqLogic : eqLogics from jeedom (and cmd's)
 // -- Return : nothing
-JeedomPlatform.prototype.AccessoireCreateHomebridge = function(eqLogic) {
+hkControlPlatform.prototype.AccessoireCreateHomebridge = function(eqLogic) {
 	var createdAccessory;
 	try {
 		var that = this;
@@ -2400,7 +2392,7 @@ JeedomPlatform.prototype.AccessoireCreateHomebridge = function(eqLogic) {
 // -- Params --
 // -- HBservice : translated homebridge service
 // -- eqLogic : the jeedom eqLogic
-JeedomPlatform.prototype.createStatusCharact = function(HBservice,services) {
+hkControlPlatform.prototype.createStatusCharact = function(HBservice,services) {
 	let Serv = HBservice.controlService;
 	Serv.statusArr = {};
 	var sabotage,defect,status_active;
@@ -2439,7 +2431,7 @@ JeedomPlatform.prototype.createStatusCharact = function(HBservice,services) {
 // -- Params --
 // -- HBservices : translated homebridge services
 // -- eqLogic : the jeedom eqLogic
-JeedomPlatform.prototype.createAccessory = function(HBservices, eqLogic) {
+hkControlPlatform.prototype.createAccessory = function(HBservices, eqLogic) {
 	try{
 		
 		var accessory = new JeedomBridgedAccessory(HBservices);
@@ -2471,7 +2463,7 @@ JeedomPlatform.prototype.createAccessory = function(HBservices, eqLogic) {
 // -- jeedomAccessory : JeedomBridgedAccessory to delete
 // -- silence : flag for logging or not
 // -- Return : nothing
-JeedomPlatform.prototype.delAccessory = function(jeedomAccessory,silence) {
+hkControlPlatform.prototype.delAccessory = function(jeedomAccessory,silence) {
 	var existingAccessory;
 	try{
 		silence = silence || false;
@@ -2507,7 +2499,7 @@ JeedomPlatform.prototype.delAccessory = function(jeedomAccessory,silence) {
 // -- Params --
 // -- jeedomAccessory : JeedomBridgedAccessory to add
 // -- Return : nothing
-JeedomPlatform.prototype.addAccessory = function(jeedomAccessory) {
+hkControlPlatform.prototype.addAccessory = function(jeedomAccessory) {
 	var HBAccessory,numberOpened,lastAct;
 	try{
 		if (!jeedomAccessory) {
@@ -2548,20 +2540,7 @@ JeedomPlatform.prototype.addAccessory = function(jeedomAccessory) {
 			jeedomAccessory.addServices(HBAccessory,services2Add,cachedValues);
 		}
 
-		if(this.fakegato && HBAccessory.context.eqLogic.hasLogging && HBAccessory.context.eqLogic.loggingService) {
-			let loggingServiceParams = HBAccessory.context.eqLogic.loggingService;
-			HBAccessory.log = {};
-			HBAccessory.log.debug = function ()	{
-													var args = [].slice.call(arguments, 0);
-													args.unshift('debug');
-													return this.log.apply(this,args);
-												}.bind(this);
-			HBAccessory.context.eqLogic.loggingService = new FakeGatoHistoryService(loggingServiceParams.type,HBAccessory,loggingServiceParams.options);
-			HBAccessory.context.eqLogic.loggingService.subtype = loggingServiceParams.subtype;
-			HBAccessory.context.eqLogic.loggingService.cmd_id = loggingServiceParams.cmd_id;
-			//HBAccessory.addService(HBAccessory.context.eqLogic.loggingService);
-			this.log('debug',' Ajout service History :'+HBAccessory.displayName+' subtype:'+HBAccessory.context.eqLogic.loggingService.subtype+' cmd_id:'+HBAccessory.context.eqLogic.loggingService.cmd_id+' UUID:'+HBAccessory.context.eqLogic.loggingService.UUID);
-		}
+
 		
 		if (isNewAccessory) {
 			this.log('│ OK : Ajout de l\'accessoire (' + jeedomAccessory.name + ')');
@@ -2591,7 +2570,7 @@ JeedomPlatform.prototype.addAccessory = function(jeedomAccessory) {
 // -- UUID : UUID to find
 // -- silence : flag for logging or not
 // -- Return : nothing
-JeedomPlatform.prototype.existingAccessory = function(UUID,silence) {
+hkControlPlatform.prototype.existingAccessory = function(UUID,silence) {
 	try{
 		silence = silence || false;
 		for (var a in this.accessories) {
@@ -2617,7 +2596,7 @@ JeedomPlatform.prototype.existingAccessory = function(UUID,silence) {
 // -- Params --
 // -- accessory : the accessory to configure
 // -- Return : nothing
-JeedomPlatform.prototype.configureAccessory = function(accessory) {
+hkControlPlatform.prototype.configureAccessory = function(accessory) {
 	try{
 		//this.log('debug',JSON.stringify(accessory).replace("\n",""));
 		if(!accessory.context)// || !accessory.context.eqLogic)
@@ -2658,7 +2637,7 @@ JeedomPlatform.prototype.configureAccessory = function(accessory) {
 // -- characteristic : characteristic to bind event to
 // -- service : service of the characteristic
 // -- Return : nothing
-JeedomPlatform.prototype.bindCharacteristicEvents = function(characteristic, service) {
+hkControlPlatform.prototype.bindCharacteristicEvents = function(characteristic, service) {
 	try{
 		var readOnly = true;
 		for (var i = 0; i < characteristic.props.perms.length; i++)
@@ -2707,7 +2686,7 @@ JeedomPlatform.prototype.bindCharacteristicEvents = function(characteristic, ser
 // -- characteristic : characteristic to get the value from
 // -- service : service in which the characteristic is
 // -- Return : nothing
-JeedomPlatform.prototype.setAccessoryValue = function(value, characteristic, service) {
+hkControlPlatform.prototype.setAccessoryValue = function(value, characteristic, service) {
 	try{
 		var that = this;
 		
@@ -2724,7 +2703,7 @@ JeedomPlatform.prototype.setAccessoryValue = function(value, characteristic, ser
 						action = 'stop';
 						cmdId  = service.cmd_id;
 						
-						that.jeedomClient.executeScenarioAction(cmdId, action).then(function(response) {
+						that.hkControlClient.executeScenarioAction(cmdId, action).then(function(response) {
 							that.log('info','[Commande Scenario envoyée à Jeedom]','cmdId:' + cmdId,'action:' + action,'response:'+JSON.stringify(response));
 						}).catch(function(err) {
 							that.log('error','Erreur à l\'envoi de la commande Scenario ' + action + ' vers ' + cmdId , err);
@@ -2735,7 +2714,7 @@ JeedomPlatform.prototype.setAccessoryValue = function(value, characteristic, ser
 						action = 'run';
 						cmdId  = service.cmd_id;
 						
-						that.jeedomClient.executeScenarioAction(cmdId, action).then(function(response) {
+						that.hkControlClient.executeScenarioAction(cmdId, action).then(function(response) {
 							that.log('info','[Commande Scenario envoyée à Jeedom]','cmdId:' + cmdId,'action:' + action,'response:'+JSON.stringify(response));
 						}).catch(function(err) {
 							that.log('error','Erreur à l\'envoi de la commande Scenario ' + action + ' vers ' + cmdId , err);
@@ -2948,7 +2927,7 @@ JeedomPlatform.prototype.setAccessoryValue = function(value, characteristic, ser
 	}
 };
 
-JeedomPlatform.prototype.findAccessoryByService = function(service) {
+hkControlPlatform.prototype.findAccessoryByService = function(service) {
 	for (let acc in this.accessories) {
 		if (this.accessories.hasOwnProperty(acc)) {
 			for(let ser in this.accessories[acc].services) {
@@ -2962,9 +2941,9 @@ JeedomPlatform.prototype.findAccessoryByService = function(service) {
 	}
 };
 
-JeedomPlatform.prototype.changeAccessoryValue = function(characteristic, service) {
+hkControlPlatform.prototype.changeAccessoryValue = function(characteristic, service) {
 		var that = this;
-		var cmdList = that.jeedomClient.getDeviceCmdFromCache(service.eqID);
+		var cmdList = that.hkControlClient.getDeviceCmdFromCache(service.eqID);
 
 		switch (characteristic.UUID) {
 			case Characteristic.ContactSensorState.UUID :
@@ -2976,7 +2955,6 @@ JeedomPlatform.prototype.changeAccessoryValue = function(characteristic, service
 							if(realValue === false) {
 								service.eqLogic.numberOpened++;
 							}
-							service.eqLogic.lastAct=moment().unix()-service.eqLogic.loggingService.getInitialTime();
 							that.api.updatePlatformAccessories([this.findAccessoryByService(service)]);
 						}
 						break;
@@ -2987,7 +2965,6 @@ JeedomPlatform.prototype.changeAccessoryValue = function(characteristic, service
 				for (const cmd of cmdList) {
 					if (cmd.generic_type == 'PRESENCE' && cmd.id == service.cmd_id) {
 						if(that.fakegato) {
-							service.eqLogic.lastAct=moment().unix()-service.eqLogic.loggingService.getInitialTime();
 							that.api.updatePlatformAccessories([this.findAccessoryByService(service)]);
 						}
 						break;
@@ -3003,7 +2980,7 @@ JeedomPlatform.prototype.changeAccessoryValue = function(characteristic, service
 // -- characteristic : characteristic to get the value from
 // -- service : service in which the characteristic is
 // -- Return : nothing
-JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
+hkControlPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 	try{
 		var that = this;
 		
@@ -3016,13 +2993,13 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 		
 		var returnValue = 0;
 		var HRreturnValue;
-		var cmdList = that.jeedomClient.getDeviceCmdFromCache(service.eqID);
+		var cmdList = that.hkControlClient.getDeviceCmdFromCache(service.eqID);
 		var hsv,mode_PRESENT,mode_AWAY,mode_NIGHT,mode_CLIM,mode_CHAUF;
 		switch (characteristic.UUID) {
 			// Switch or Light
 			case Characteristic.On.UUID :
 				if(service.infos.scenario) {
-					let scenario = that.jeedomClient.getScenarioPropertiesFromCache(service.infos.scenario.id);
+					let scenario = that.hkControlClient.getScenarioPropertiesFromCache(service.infos.scenario.id);
 					switch(scenario.state) {
 						case 'stop':
 							returnValue = false;
@@ -3033,7 +3010,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 					}
 					if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 						service.eqLogic.loggingService.addEntry({
-						  time: moment().unix(),
 						  status: ((returnValue)?1:0)
 						});
 					}
@@ -3072,7 +3048,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 							returnValue = cmd.currentValue;
 							if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 								service.eqLogic.loggingService.addEntry({
-								  time: moment().unix(),
 								  status: ((returnValue)?1:0)
 								});
 							}
@@ -3186,7 +3161,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 						returnValue = parseInt(cmd.currentValue);
 						if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  ppm: returnValue
 							});
 						}
@@ -3255,7 +3229,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 								service.eqLogic.numberOpened++;
 							}*/
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  status: returnValue
 							});
 						}
@@ -3282,7 +3255,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 						returnValue = cmd.currentValue;
 						if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging && (cmd.generic_type == 'TEMPERATURE' || cmd.generic_type == 'WEATHER_TEMPERATURE')) {
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  temp: returnValue
 							});
 						}
@@ -3298,7 +3270,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 						returnValue = cmd.currentValue;
 						if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  humidity: returnValue
 							});
 						}
@@ -3314,7 +3285,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 						returnValue = cmd.currentValue;
 						if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  pressure: returnValue
 							});
 						}
@@ -3369,7 +3339,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 						returnValue = toBool(cmd.currentValue);
 						if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  status: returnValue?1:0
 							});
 						}
@@ -3983,7 +3952,6 @@ JeedomPlatform.prototype.getAccessoryValue = function(characteristic, service) {
 						returnValue = cmd.currentValue;
 						if(that.fakegato && service.eqLogic && service.eqLogic.hasLogging) {
 							service.eqLogic.loggingService.addEntry({
-							  time: moment().unix(),
 							  power: returnValue
 							});
 						}
@@ -4197,11 +4165,11 @@ function toBool(val) {
 // -- value : value to set (if any)
 // -- service : from which Homebridge service
 // -- Return : nothing
-JeedomPlatform.prototype.command = function(action, value, service) {
+hkControlPlatform.prototype.command = function(action, value, service) {
 	try{
 		var that = this;
 
-		var cmdList = that.jeedomClient.getDeviceCmdFromCache(service.eqID); 
+		var cmdList = that.hkControlClient.getDeviceCmdFromCache(service.eqID); 
 		
 		var cmdId = service.cmd_id;
 		let found=false;
@@ -4674,7 +4642,7 @@ JeedomPlatform.prototype.command = function(action, value, service) {
 		}
 		
 		if(needToTemporize===0) {
-			that.jeedomClient.executeDeviceAction(cmdId, action, value).then(function(response) {
+			that.hkControlClient.executeDeviceAction(cmdId, action, value).then(function(response) {
 				that.log('info','[Commande envoyée à Jeedom]','cmdId:' + cmdId,'action:' + action,'value: '+value,'generic:'+cmdFound,'response:'+JSON.stringify(response));
 			}).catch(function(err) {
 				that.log('error','Erreur à l\'envoi de la commande ' + action + ' vers ' + service.cmd_id , err);
@@ -4685,7 +4653,7 @@ JeedomPlatform.prototype.command = function(action, value, service) {
 			service.temporizator = setTimeout(function(){
 				if(cmdFound=="LIGHT_SLIDER") that.settingLight=false;
 				if(cmdFound=="FAN_SLIDER") that.settingFan=false;
-				that.jeedomClient.executeDeviceAction(cmdId, action, value).then(function(response) {
+				that.hkControlClient.executeDeviceAction(cmdId, action, value).then(function(response) {
 					that.log('info','[Commande T envoyée à Jeedom]','cmdId:' + cmdId,'action:' + action,'value: '+value,'response:'+JSON.stringify(response));
 				}).catch(function(err) {
 					that.log('error','Erreur à l\'envoi de la commande ' + action + ' vers ' + service.cmd_id , err);
@@ -4706,7 +4674,7 @@ JeedomPlatform.prototype.command = function(action, value, service) {
 // -- service : service containing the characteristic to subscribe to
 // -- characteristic : characteristic to subscribe to
 // -- Return : nothing
-JeedomPlatform.prototype.subscribeUpdate = function(service, characteristic) {
+hkControlPlatform.prototype.subscribeUpdate = function(service, characteristic) {
 	try{
 		if (characteristic.UUID == Characteristic.PositionState.UUID)
 			return;
@@ -4727,11 +4695,11 @@ JeedomPlatform.prototype.subscribeUpdate = function(service, characteristic) {
 // -- Desc : Get the last status from Jeedom and act on it (update model and subscribers)
 // -- Params --
 // -- Return : nothing
-JeedomPlatform.prototype.startPollingUpdate = function() {
+hkControlPlatform.prototype.startPollingUpdate = function() {
 	var that = this;
 	if(that.pollingUpdateRunning) {return;}
 	that.pollingUpdateRunning = true;
-	that.jeedomClient.refreshStates().then(function(updates) {
+	that.hkControlClient.refreshStates().then(function(updates) {
 		that.lastPoll = updates.datetime;
 		if (updates.result) {
 			updates.result.map(function(update) {
@@ -4739,24 +4707,24 @@ JeedomPlatform.prototype.startPollingUpdate = function() {
 				    update.option.value != undefined && 
 				    update.option.cmd_id) {
 					
-					that.jeedomClient.updateModelInfo(update.option.cmd_id,update.option.value); // Update cachedModel
+					that.hkControlClient.updateModelInfo(update.option.cmd_id,update.option.value); // Update cachedModel
 					that.updateSubscribers(update);// Update subscribers
 
 				} else if(update.name == 'scenario::update' &&
 						  update.option.state != undefined && 
 						  update.option.scenario_id) {
 						   
-					that.jeedomClient.updateModelScenario(update.option.scenario_id,update.option.state); // Update cachedModel
+					that.hkControlClient.updateModelScenario(update.option.scenario_id,update.option.state); // Update cachedModel
 					that.updateSubscribers(update);// Update subscribers
 					
 				} else if(DEV_DEBUG && update.name == 'eqLogic::update' &&
 				   update.option.eqLogic_id) {
 				
-					var cacheState = that.jeedomClient.getDevicePropertiesFromCache(update.option.eqLogic_id);
-					that.jeedomClient.getDeviceProperties(update.option.eqLogic_id).then(function(eqLogic){
+					var cacheState = that.hkControlClient.getDevicePropertiesFromCache(update.option.eqLogic_id);
+					that.hkControlClient.getDeviceProperties(update.option.eqLogic_id).then(function(eqLogic){
 						if(cacheState.isEnable != eqLogic.isEnable) {
 							that.log('debug',"Changing Enable in",update.option.eqLogic_id,'from',cacheState.isEnable,'to',eqLogic.isEnable);
-							that.jeedomClient.updateModelEq(update.option.eqLogic_id,eqLogic);
+							that.hkControlClient.updateModelEq(update.option.eqLogic_id,eqLogic);
 						}
 					});
 					that.log('debug','[Reçu Type non géré]',update.name+' contenu: '+JSON.stringify(update).replace("\n",""));
@@ -4781,7 +4749,7 @@ JeedomPlatform.prototype.startPollingUpdate = function() {
 // -- Params --
 // -- update : the update received from Jeedom
 // -- Return : nothing
-JeedomPlatform.prototype.updateSubscribers = function(update) {
+hkControlPlatform.prototype.updateSubscribers = function(update) {
 	var that = this;
 	var subCharact,subService,updateID;
 	for (let i = 0; i < that.updateSubscriptions.length; i++) {
@@ -4835,7 +4803,7 @@ JeedomPlatform.prototype.updateSubscribers = function(update) {
 // -- v : Value (brightness)
 // -- service : service containing the color
 // -- Return : rgb object
-JeedomPlatform.prototype.updateJeedomColorFromHomeKit = function(h, s, v, service) {
+hkControlPlatform.prototype.updateJeedomColorFromHomeKit = function(h, s, v, service) {
 	if (h != null)
 		service.HSBValue.hue = h;
 	if (s != null)
@@ -4855,7 +4823,7 @@ JeedomPlatform.prototype.updateJeedomColorFromHomeKit = function(h, s, v, servic
 // -- color : html color #121212
 // -- service : service containing the color
 // -- Return : hsv object
-JeedomPlatform.prototype.updateHomeKitColorFromJeedom = function(color, service) {
+hkControlPlatform.prototype.updateHomeKitColorFromJeedom = function(color, service) {
 	if (!color)
 		color = '0,0,0';
 	//this.log('debug',"couleur :" + color);
@@ -4879,7 +4847,7 @@ JeedomPlatform.prototype.updateHomeKitColorFromJeedom = function(color, service)
 // -- rgb : rgb object
 // -- service : service to set color to
 // -- Return : nothing
-JeedomPlatform.prototype.syncColorCharacteristics = function(rgb, service) {
+hkControlPlatform.prototype.syncColorCharacteristics = function(rgb, service) {
 	/*switch (--service.countColorCharacteristics) {
 	case -1:
 		service.countColorCharacteristics = 2;*/
@@ -5274,11 +5242,6 @@ function RegisterCustomCharacteristics() {
 	Characteristic.RemainingDuration.UUID = '000000D4-0000-1000-8000-0026BB765291';
 	inherits(Characteristic.RemainingDuration, Characteristic);
 	
-	/**
-	 * FakeGato History Service
-	 */
-	//Service.FakeGatoHistoryService=FakeGatoHistoryService;
-	//inherits(Service.FakeGatoHistoryService, Service);
 	
 	/**
 	 * Custom Service 'Power Monitor'
