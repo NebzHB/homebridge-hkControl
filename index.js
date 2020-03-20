@@ -16,7 +16,11 @@
 /*jshint esversion: 6,node: true,-W041: false */
 'use strict';
 
+const sodium = require('libsodium-wrappers');
+const {HttpClient} = require('hap-controller');
+
 var Accessory, Service, Characteristic, UUIDGen;
+
 var inherits = require('util').inherits;
 var myLogger = require('./lib/myLogger').myLogger;
 var debug = {};
@@ -27,8 +31,6 @@ debug.ERROR = 400;
 debug.NO = 1000;
 var hasError = false;
 var DEV_DEBUG=false;
-const GenericAssociated = ['GENERIC_INFO','SHOCK','RAIN_CURRENT','RAIN_TOTAL','WIND_SPEED','WIND_DIRECTION','MODE_STATE'];
-const PushButtonAssociated = ['PUSH_BUTTON','CAMERA_UP','CAMERA_DOWN','CAMERA_LEFT','CAMERA_RIGHT','CAMERA_ZOOM','CAMERA_DEZOOM','CAMERA_PRESET'];
 
 module.exports = function(homebridge) {
 	Accessory = homebridge.platformAccessory;
