@@ -23,7 +23,8 @@
     "Siri"
   ],
   "dependencies": {
-    "request": ">=2.81.0"
+    "request": ">=2.81.0",
+    "hap-controller": "NebzHB/hap-controller-node#master"
   },
   "author": "Benjamin RENARD <nebz@nebz.be>",
   "contributors": [],
