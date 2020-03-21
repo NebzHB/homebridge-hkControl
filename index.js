@@ -59,31 +59,29 @@ function hkControlPlatform(logger, config, api) {
 		this.debugLevel = config.debugLevel || debug.ERROR;
 		this.log = myLogger.createMyLogger(this.debugLevel,logger);
 		this.log('debugLevel:'+this.debugLevel);
-		this.myPlugin = config.myPlugin;
-		
-		this.pathHomebridgeConf = api.user.storagePath()+'/';
-		
-		if (!config.url || 
-		    config.url == "http://:80" ||
-			config.url == 'https://:80') {
-			this.log('error',"Adresse Jeedom non configurée, Veuillez la configurer avant de relancer.");
-			process.exit(1);
-		}else if(config.url.indexOf('https') !== -1) {
-			this.log('error',"Adresse Jeedom utilise https en interne, non supporté :"+config.url);	
-			process.exit(1);
-		}else {
-			this.log('info',"Adresse Jeedom bien configurée :"+config.url);	
+
+		if (config.pairingFile) {
+			try {
+				this.pairings = JSON.parse(fs.readFileSync(config.pairingFile, 'utf8'));
+			} catch (err) {
+				if (err) {
+					this.log("Impossible de lire : "+config.pairingFile+" : "+err);
+					process.exit(-1);
+				}
+			}
+		} else {
+			this.log("Pas reçu de fichier de pairing") ;
+			process.exit(-1);
 		}
+		
 		this.DEV_DEBUG = DEV_DEBUG; // for passing by
-		this.hkControlClient = require('./lib/hkControl-api').createClient(config.url, config.apikey, this, config.myPlugin);
+
 		this.rooms = {};
 		this.updateSubscriptions = [];
 		
 		this.lastPoll = 0;
 		this.pollingUpdateRunning = false;
 		this.pollingID = null;
-		this.settingLight = false;
-		this.settingFan = false;
 		
 		this.pollerPeriod = config.pollerperiod;
 		if ( typeof this.pollerPeriod == 'string')
@@ -107,44 +105,95 @@ function hkControlPlatform(logger, config, api) {
 // -- addAccessories
 // -- Desc : Accessories creation, we get a full model from jeedom and put it in local cache
 // -- Return : nothing
-hkControlPlatform.prototype.addAccessories = function() {
+hkControlPlatform.prototype.addAccessories = async function() {
 	try{
 		var that = this;
-		that.log('Synchronisation Jeedom <> Homebridge...');
-		that.hkControlClient.getModel()
-			.then(function(model){ // we got the base Model from the API
-				if(model && typeof model == 'object' && model.config && typeof model.config == 'object' && model.config.datetime) {
-					that.lastPoll=model.config.datetime;
-					
-					that.log('debug','Enumération des objets Jeedom (Pièces)...');
-					if(model.objects && typeof model.objects == 'object' && Object.keys(model.objects).length !== 0) {
-						model.objects.map(function(r){
-							that.rooms[r.id] = r.name;
-							that.log('debug','Pièce > ' + r.name);
+		that.log('Synchronisation hkControl <> Homebridge...');
+		for(var pairing of that.pairings)
+		{
+			const client = new HttpClient(
+				pairing.id, 
+				pairing.address, 
+				pairing.port, 
+				pairing.pairingData
+			)
+			
+			const accessories = await client.getAccessories();
+			client.accessoryNames = {}
+			client.cachedValue = {}
+
+			for(var accessory of accessories)
+			{
+				const characteristic = accessory.aid + '.' + accessory.iid;
+
+				client.accessoryNames[characteristic] = accessory.name
+				if(accessory.type === '00000049-0000-1000-8000-0026BB765291')
+				{
+					// Switch
+					const hbService = new Service.Switch(accessory.name);
+
+					hbService.getCharacteristic(Characteristic.On)
+						.on('set', async (value, callback) => {
+							try {
+								await client.setCharacteristics({
+									[characteristic]: value
+								});
+
+								client.cachedValue[characteristic] = value
+
+								this.log('[set] Switch ' + client.accessoryNames[characteristic] + ' setCharacteristics ' + characteristic + ' -> ' + value + ' => ok')
+								callback(null);
+							} catch(e){
+								callback(null);
+								this.log('[set] Switch ' + client.accessoryNames[characteristic] + ' setCharacteristics ' + characteristic + ' -> ' + value + ' => error', e)
+							}
+						})
+						.on('get', async (callback) => {
+							try {
+								let callbacked = false
+
+								if(client.cachedValue && client.cachedValue[characteristic])
+								{
+									this.log('[get] Switch ' + client.accessoryNames[characteristic] + ' cachedValue ' + characteristic + ' = ' + client.cachedValue[characteristic] + ' => ok')
+									callback(null, client.cachedValue[characteristic])
+									callbacked = true
+									return
+								}
+
+
+								const result = await client.getCharacteristics([characteristic])
+
+								client.cachedValue = client.cachedValue || {}
+								client.cachedValue[characteristic] = result.characteristics[0].value
+
+								this.log('[get] Switch ' + client.accessoryNames[characteristic] + ' getCharacteristics ' + characteristic + ' = ' + result.characteristics[0].value + ' => ok')
+
+								if(!callbacked)
+								{
+									callback(null, result.characteristics[0].value)
+								}
+							} catch(e) {
+								callback(null, false);
+								this.log('[get] Switch ' + client.accessoryNames[characteristic] + ' getCharacteristics ' + characteristic + ' => error', e)
+							}
 						});
-					} else {
-						that.log('error','Pièce > '+model.objects);
-						throw new Error('Rooms list empty or invalid');
+					
+
+					const hbAccessory = {
+						name: accessory.name,
+						type: accessory.type,
+						serviceId: pairing.id,
+						characteristic
 					}
 
-					that.log('Enumération des scénarios Jeedom...');
-					that.JeedomScenarios2HomeKitAccessories(model.scenarios);
-					
-					that.log('Enumération des périphériques Jeedom...');
-					if(model.eqLogics && typeof model.eqLogics == 'object' && Object.keys(model.eqLogics).length !== 0) {
-						that.JeedomDevices2HomeKitAccessories(model.eqLogics);
-					} else {
-						that.log('error','Périf > '+model.eqLogics);
-						throw new Error('eqLogics list empty');	
-					}
-				} else {
-					that.log('error','Model invalide > ',model);
-					throw new Error('Invalid Model');
+					hbAccessory.getServices = () => [hbService];
+
+					this.hbAccessories.push(hbAccessory);
 				}
-			}).catch(function(err) {
-				that.log('error','#2 Erreur de récupération des données Jeedom: ' , err);
-				if(err) console.error(err.stack);
-			});
+			}
+
+			that.clients[pairing.id] = client;
+		}
 	}
 	catch(e){
 		this.log('error','Erreur de la fonction addAccessories :',e);
@@ -2668,11 +2717,6 @@ hkControlPlatform.prototype.bindCharacteristicEvents = function(characteristic, 
 			}
 		}.bind(this));
 		
-		if (this.fakegato) {
-			characteristic.on('change', function(callback) {
-				this.changeAccessoryValue(characteristic, service);
-			}.bind(this));
-		}
 	}
 	catch(e){
 		this.log('error','Erreur de la fonction bindCharacteristicEvents :',e);
@@ -2943,38 +2987,6 @@ hkControlPlatform.prototype.findAccessoryByService = function(service) {
 	}
 };
 
-hkControlPlatform.prototype.changeAccessoryValue = function(characteristic, service) {
-		var that = this;
-		var cmdList = that.hkControlClient.getDeviceCmdFromCache(service.eqID);
-
-		switch (characteristic.UUID) {
-			case Characteristic.ContactSensorState.UUID :
-				for (const cmd of cmdList) {
-					if ((cmd.generic_type == 'OPENING' || cmd.generic_type == 'OPENING_WINDOW') && cmd.id == service.cmd_id) {
-						
-						if(that.fakegato) {
-							let realValue = parseInt(service.invertBinary)==0 ? toBool(cmd.currentValue) : !toBool(cmd.currentValue); // invertBinary ?
-							if(realValue === false) {
-								service.eqLogic.numberOpened++;
-							}
-							that.api.updatePlatformAccessories([this.findAccessoryByService(service)]);
-						}
-						break;
-					}
-				}
-			break;	
-			case Characteristic.MotionDetected.UUID :
-				for (const cmd of cmdList) {
-					if (cmd.generic_type == 'PRESENCE' && cmd.id == service.cmd_id) {
-						if(that.fakegato) {
-							that.api.updatePlatformAccessories([this.findAccessoryByService(service)]);
-						}
-						break;
-					}
-				}
-			break;				
-		}
-};
 
 // -- getAccessoryValue
 // -- Desc : Get the value of an accessory in the jeedom local cache
