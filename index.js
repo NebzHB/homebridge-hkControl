@@ -170,7 +170,7 @@ hkControlPlatform.prototype.addAccessories = async function() {
 					for(var c in charList) {
 						if(charList[c].UUID=='00000023-0000-1000-8000-0026BB765291') continue;
 						this.log('this Char to add : ',charList[c]);
-						hbService.addCharacteristic(charList[c]);
+						var thisChar=hbService.addCharacteristic(charList[c]);
 					}
 					this.log('this is the service object : ',hbService);
 				}
