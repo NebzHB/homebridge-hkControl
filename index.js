@@ -17,9 +17,12 @@
 'use strict';
 
 const sodium = require('libsodium-wrappers');
-const {HttpClient} = require('hap-controller');
+var {HttpClient,Characteristic,Service} = require('hap-controller');
+const HAPChar=Characteristic;
+const HAPServ=Service;
+const fs = require('fs');
 
-var Accessory, Service, Characteristic, UUIDGen;
+var Accessory, UUIDGen;
 
 var inherits = require('util').inherits;
 var myLogger = require('./lib/myLogger').myLogger;
@@ -75,7 +78,7 @@ function hkControlPlatform(logger, config, api) {
 		}
 		
 		this.DEV_DEBUG = DEV_DEBUG; // for passing by
-
+		this.clients=[];
 		this.rooms = {};
 		this.updateSubscriptions = [];
 		
@@ -107,27 +110,71 @@ function hkControlPlatform(logger, config, api) {
 // -- Return : nothing
 hkControlPlatform.prototype.addAccessories = async function() {
 	try{
-		var that = this;
-		that.log('Synchronisation hkControl <> Homebridge...');
-		for(var pairing of that.pairings)
+		var charClass,serviceClass,hbChar,hbService;
+		this.log('Synchronisation hkControl <> Homebridge...');
+		for(var p in this.pairings)
 		{
 			const client = new HttpClient(
-				pairing.id, 
-				pairing.address, 
-				pairing.port, 
-				pairing.pairingData
+				p, 
+				this.pairings[p].address, 
+				this.pairings[p].port, 
+				this.pairings[p].pairing
 			)
 			
-			const accessories = await client.getAccessories();
+			const acc = await client.getAccessories();
 			client.accessoryNames = {}
 			client.cachedValue = {}
+			//this.log("all accessories : ",acc);
+			for(var a in acc.accessories)
+			{	
+				var accessory=acc.accessories[a];
+				var accName=this.pairings[p].name;
+				//this.log("this accessory "+this.pairings[p].type+" : ",accessory,accName,accessory.services);
+				const characteristic = accessory.aid;
 
-			for(var accessory of accessories)
-			{
-				const characteristic = accessory.aid + '.' + accessory.iid;
-
-				client.accessoryNames[characteristic] = accessory.name
-				if(accessory.type === '00000049-0000-1000-8000-0026BB765291')
+				client.accessoryNames[accessory.aid] = accName;
+				
+				for(var s in accessory.services) 
+				{
+					var service=accessory.services[s];
+					var serviceTypeLabel=HAPServ.serviceFromUuid(service.type).replace('public.hap.service.','');
+					var charList=[]
+					//this.log("this service : ",serviceTypeLabel,service);
+					for(var c in service.characteristics) {
+						var charact=service.characteristics[c];
+						var charactTypeLabel=HAPChar.characteristicFromUuid(charact.type).replace('public.hap.characteristic.','');
+						
+						//this.log("this char : ",charactTypeLabel,charact);
+						var Props={};
+						if('undefined' !== typeof charact.format) Props.format=charact.format;
+						if('undefined' !== typeof charact.unit) Props.unit=charact.unit;
+						if('undefined' !== typeof charact.perms) Props.perms=charact.perms;
+						if('undefined' !== typeof charact.ev) Props.ev=charact.ev;
+						if('undefined' !== typeof charact.description) Props.description=charact.description;
+						if('undefined' !== typeof charact.minValue) Props.minValue=charact.minValue;
+						if('undefined' !== typeof charact.maxValue) Props.maxValue=charact.maxValue;
+						if('undefined' !== typeof charact.minStep) Props.minStep=charact.minStep;
+						if('undefined' !== typeof charact.maxLen) Props.maxLen=charact.maxLen;
+						if('undefined' !== typeof charact.maxDataLen) Props.maxDataLen=charact.maxDataLen;
+						if('undefined' !== typeof charact.validValues) Props.validValues=charact.validValues;
+						if('undefined' !== typeof charact.validValueRanges) Props.validValueRanges=charact.validValueRanges;
+						this.log('this is the char : ',charactTypeLabel,Props);
+						charClass=this.createChar(charactTypeLabel, this.expandUUID(charact.type), Props, charact.value);
+						hbChar= new charClass(charact.value);
+						this.log('this is the char object : ',hbChar);
+						charList.push(hbChar);
+					}
+					
+					serviceClass=this.createService(serviceTypeLabel, this.expandUUID(service.type));
+					hbService= new serviceClass(serviceTypeLabel);
+					for(var c in charList) {
+						if(charList[c].UUID=='00000023-0000-1000-8000-0026BB765291') continue;
+						this.log('this Char to add : ',charList[c]);
+						hbService.addCharacteristic(charList[c]);
+					}
+					this.log('this is the service object : ',hbService);
+				}
+				/*if(accessory.type === '00000049-0000-1000-8000-0026BB765291')
 				{
 					// Switch
 					const hbService = new Service.Switch(accessory.name);
@@ -182,17 +229,17 @@ hkControlPlatform.prototype.addAccessories = async function() {
 					const hbAccessory = {
 						name: accessory.name,
 						type: accessory.type,
-						serviceId: pairing.id,
+						serviceId: this.pairings[p].id,
 						characteristic
 					}
 
 					hbAccessory.getServices = () => [hbService];
 
 					this.hbAccessories.push(hbAccessory);
-				}
+				}*/
 			}
 
-			that.clients[pairing.id] = client;
+			this.clients[p] = client;
 		}
 	}
 	catch(e){
@@ -200,6 +247,36 @@ hkControlPlatform.prototype.addAccessories = async function() {
 		console.error(e.stack);
 	}
 };
+
+hkControlPlatform.prototype.createService = function(displayName, UUID, subtype='') {
+	var that = this;
+	var thisService = function(displayName, subtype) {
+		Service.call(this, displayName, UUID, subtype);
+	};
+	inherits(thisService, Service);
+	thisService.UUID = UUID;
+	return thisService;
+}
+
+hkControlPlatform.prototype.createChar = function(displayName, UUID, Props, value="") {
+	var thisChar = function(value) {
+			Characteristic.call(this, displayName, UUID, Props);
+			//this.value = this.getDefaultValue();
+			this.value=value;
+	};
+	inherits(thisChar, Characteristic);
+	thisChar.UUID = UUID;
+	thisChar.value=value;
+	return thisChar;
+}
+
+const UuidSuffix= "-0000-1000-8000-0026BB765291";
+hkControlPlatform.prototype.expandUUID = function(uuid) {
+	if (uuid.length <= 8) {
+		uuid = `${uuid.padStart(8, '0')}${UuidSuffix}`;
+	}
+	return uuid.toUpperCase();
+}
 
 hkControlPlatform.prototype.JeedomScenarios2HomeKitAccessories = function(scenarios) {
 	try{
