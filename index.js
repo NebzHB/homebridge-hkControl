@@ -54,7 +54,7 @@ module.exports = function(homebridge) {
 function hkControlPlatform(logger, config, api) {
 	try{
 		this.config = config || {};
-		this.accessories = [];
+		this.hbAccessories = [];
 		if(config.debugLevel == 0) {
 			config.debugLevel = 100;
 			DEV_DEBUG = true;
@@ -130,19 +130,25 @@ hkControlPlatform.prototype.addAccessories = async function() {
 				var accessory=acc.accessories[a];
 				var accName=this.pairings[p].name;
 				//this.log("this accessory "+this.pairings[p].type+" : ",accessory,accName,accessory.services);
-				const characteristic = accessory.aid;
-
-				client.accessoryNames[accessory.aid] = accName;
+				const accAID = accessory.aid;
+				var hbServices=[];
+				const hbAccessory = {
+					name: accName,
+					type: this.pairings[p].type,
+					serviceId: p
+				}
 				
 				for(var s in accessory.services) 
 				{
 					var service=accessory.services[s];
 					var serviceTypeLabel=HAPServ.serviceFromUuid(service.type).replace('public.hap.service.','');
-					var charList=[]
+					var charList=[];
 					//this.log("this service : ",serviceTypeLabel,service);
 					for(var c in service.characteristics) {
 						var charact=service.characteristics[c];
+						var aidiid=accAID+'.'+charact.iid;
 						var charactTypeLabel=HAPChar.characteristicFromUuid(charact.type).replace('public.hap.characteristic.','');
+						client.accessoryNames[aidiid] = charactTypeLabel;
 						
 						//this.log("this char : ",charactTypeLabel,charact);
 						var Props={};
@@ -158,62 +164,56 @@ hkControlPlatform.prototype.addAccessories = async function() {
 						if('undefined' !== typeof charact.maxDataLen) Props.maxDataLen=charact.maxDataLen;
 						if('undefined' !== typeof charact.validValues) Props.validValues=charact.validValues;
 						if('undefined' !== typeof charact.validValueRanges) Props.validValueRanges=charact.validValueRanges;
-						this.log('this is the char : ',charactTypeLabel,Props);
+						//this.log('this is the char : ',charactTypeLabel,Props);
 						charClass=this.createChar(charactTypeLabel, this.expandUUID(charact.type), Props, charact.value);
 						hbChar= new charClass(charact.value);
-						this.log('this is the char object : ',hbChar);
+						hbChar.aidiid=aidiid;
+						//this.log('this is the char object : ',hbChar);
 						charList.push(hbChar);
 					}
 					
 					serviceClass=this.createService(serviceTypeLabel, this.expandUUID(service.type));
 					hbService= new serviceClass(serviceTypeLabel);
 					for(var c in charList) {
-						if(charList[c].UUID=='00000023-0000-1000-8000-0026BB765291') continue;
-						this.log('this Char to add : ',charList[c]);
-						var thisChar=hbService.addCharacteristic(charList[c]);
-					}
-					this.log('this is the service object : ',hbService);
-				}
-				/*if(accessory.type === '00000049-0000-1000-8000-0026BB765291')
-				{
-					// Switch
-					const hbService = new Service.Switch(accessory.name);
-
-					hbService.getCharacteristic(Characteristic.On)
-						.on('set', async (value, callback) => {
+						var hbChar=charList[c];
+						var aidiid=hbChar.aidiid;
+						if(hbChar.UUID=='00000023-0000-1000-8000-0026BB765291') continue;
+						//this.log('this Char to add : ',hbChar);
+						var thisChar=hbService.addCharacteristic(hbChar);
+						thisChar.on('set', async (value, callback) => {
 							try {
 								await client.setCharacteristics({
-									[characteristic]: value
+									[aidiid]: value
 								});
 
-								client.cachedValue[characteristic] = value
+								client.cachedValue[aidiid] = value
 
-								this.log('[set] Switch ' + client.accessoryNames[characteristic] + ' setCharacteristics ' + characteristic + ' -> ' + value + ' => ok')
+								this.log('[set] ' + client.accessoryNames[aidiid] + ' setCharacteristics ' + aidiid + ' -> ' + value + ' => ok')
 								callback(null);
 							} catch(e){
 								callback(null);
-								this.log('[set] Switch ' + client.accessoryNames[characteristic] + ' setCharacteristics ' + characteristic + ' -> ' + value + ' => error', e)
+								this.log('[set] ' + client.accessoryNames[aidiid] + ' setCharacteristics ' + aidiid + ' -> ' + value + ' => error', e)
 							}
 						})
 						.on('get', async (callback) => {
 							try {
 								let callbacked = false
 
-								if(client.cachedValue && client.cachedValue[characteristic])
+								if(client.cachedValue && client.cachedValue[aidiid])
 								{
-									this.log('[get] Switch ' + client.accessoryNames[characteristic] + ' cachedValue ' + characteristic + ' = ' + client.cachedValue[characteristic] + ' => ok')
-									callback(null, client.cachedValue[characteristic])
+									this.log('[get] ' + client.accessoryNames[aidiid] + ' cachedValue ' + aidiid + ' = ' + client.cachedValue[aidiid] + ' => ok')
+									callback(null, client.cachedValue[aidiid])
 									callbacked = true
 									return
 								}
 
 
-								const result = await client.getCharacteristics([characteristic])
+								const result = await client.getCharacteristics([aidiid])
 
 								client.cachedValue = client.cachedValue || {}
-								client.cachedValue[characteristic] = result.characteristics[0].value
+								client.cachedValue[aidiid] = result.characteristics[0].value
 
-								this.log('[get] Switch ' + client.accessoryNames[characteristic] + ' getCharacteristics ' + characteristic + ' = ' + result.characteristics[0].value + ' => ok')
+								this.log('[get] ' + client.accessoryNames[aidiid] + ' getCharacteristics ' + aidiid + ' = ' + result.characteristics[0].value + ' => ok')
 
 								if(!callbacked)
 								{
@@ -221,25 +221,21 @@ hkControlPlatform.prototype.addAccessories = async function() {
 								}
 							} catch(e) {
 								callback(null, false);
-								this.log('[get] Switch ' + client.accessoryNames[characteristic] + ' getCharacteristics ' + characteristic + ' => error', e)
+								this.log('[get] ' + client.accessoryNames[aidiid] + ' getCharacteristics ' + aidiid + ' => error', e)
 							}
 						});
-					
-
-					const hbAccessory = {
-						name: accessory.name,
-						type: accessory.type,
-						serviceId: this.pairings[p].id,
-						characteristic
+						
 					}
-
-					hbAccessory.getServices = () => [hbService];
-
-					this.hbAccessories.push(hbAccessory);
-				}*/
-			}
-
+					//this.log('this is the service object : ',hbService);
+					hbServices.push(hbService);
+				} //end for services
+				hbAccessory.getServices = () => hbServices;
+				hbAccessory.UUID=UUIDGen.generate(p);
+				this.hbAccessories.push(hbAccessory);
+				
+			} //end for accessories
 			this.clients[p] = client;
+			this.api.registerPlatformAccessories('homebridge-hkControl', 'hkControl', this.hbAccessories);
 		}
 	}
 	catch(e){
