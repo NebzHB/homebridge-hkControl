@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Ré-expose dans Maison les accessoires HomeKit appairés dans le plugin Jeedom hkControl",
   "main": "index.js",
+  "files": [
+    "index.js",
+    "lib/"
+  ],
   "private": true,
   "scripts": {
     "test": "node --test",
