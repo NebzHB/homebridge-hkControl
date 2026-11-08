@@ -38,6 +38,18 @@ La configuration est générée par le plugin Jeedom **homebridge** quand on coc
 
 Pas d'entrée `HkControl` dans la config = le plugin est installé mais ne fait rien.
 
+## Logs
+
+Le plugin écrit dans le log Jeedom **`hkControl_homebridge`**, au niveau de log du plugin hkControl. Ce niveau est transmis par `getExternalApi`, relu à chaque reconnexion et toutes les 2 minutes : pas besoin de relancer Homebridge quand on le change. Chaque ligne commence par le nom du pont, par exemple `[hkControl Prise salon]`.
+
+| Niveau | Contenu |
+|---|---|
+| info | uniquement les états qui changent (`Prise > On : 1`, `… (depuis Maison)`), et le retour de l'équipement après une coupure |
+| debug | en plus : actions venues de Maison et leur résultat, création (services, caractéristiques, éléments ignorés), connexions au démon, relectures de valeurs |
+| warning / error | problèmes (démon ou équipement injoignable, écriture refusée…), toujours écrits |
+
+Les warnings, les erreurs et les grandes étapes (démarrage, ajout ou retrait d'accessoire) restent aussi dans le log Homebridge (`homebridge_daemon`).
+
 ## Limites actuelles
 
 Les services et caractéristiques suivants ne sont pas relayés (journalisés en debug) :
