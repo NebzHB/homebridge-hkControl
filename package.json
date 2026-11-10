@@ -1,16 +1,21 @@
 {
-  "name": "homebridge-hkControl",
-  "version": "v0.0.1",
-  "cust_serial": "0000",
-  "description": "hkControl plugin for Homebridge",
+  "name": "homebridge-hkcontrol",
+  "version": "0.1.0",
+  "description": "Ré-expose dans Maison les accessoires HomeKit appairés dans le plugin Jeedom hkControl",
   "main": "index.js",
+  "files": [
+    "index.js",
+    "lib/"
+  ],
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "echo \"Error: configure and run homebridge to start\" && exit 1"
+    "test": "node --test",
+    "lint:js": "eslint .",
+    "lint": "npm run lint:js"
   },
   "engines": {
-    "node": ">4.0.0",
-    "homebridge": ">=0.4.38"
+    "node": ">=22",
+    "homebridge": "^2.0.0"
   },
   "repository": {
     "type": "git",
@@ -19,15 +24,16 @@
   "keywords": [
     "homebridge-plugin",
     "Jeedom",
-    "homekit",
-    "Siri"
+    "hkControl",
+    "homekit"
   ],
-  "dependencies": {
-    "request": ">=2.81.0",
-    "hap-controller": "NebzHB/hap-controller-node#master"
+  "dependencies": {},
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0"
   },
   "author": "Benjamin RENARD <nebz@nebz.be>",
-  "contributors": [],
   "license": "GPL-2.0",
   "bugs": {
     "url": "https://github.com/NebzHB/homebridge-hkControl/issues"
